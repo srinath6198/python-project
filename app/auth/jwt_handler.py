@@ -10,7 +10,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "type": "access"})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
@@ -49,16 +49,16 @@ def verify_refresh_token(token: str):
             algorithms=[settings.ALGORITHM]
         )
 
-        username = payload.get("sub")
+        subject = payload.get("sub")
         token_type = payload.get("type")
 
-        if username is None:
+        if subject is None:
             return None
 
         if token_type != "refresh":
             return None
 
-        return username
+        return subject
 
     except JWTError:
         return None

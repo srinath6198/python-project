@@ -143,3 +143,97 @@ Say the word and I'll build that part next, using this same folder structure.
                │
                ▼
        New Access Token
+
+
+
+
+
+       flower_billing_app/
+│
+├── app/
+│   │
+│   ├── main.py
+│   ├── config.py
+│   ├── database.py
+│   │
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── user.py
+│   │   ├── customer.py
+│   │   ├── supplier.py
+│   │   ├── category.py
+│   │   ├── product.py
+│   │   ├── purchase.py
+│   │   ├── purchase_item.py
+│   │   ├── sale.py
+│   │   ├── sale_item.py
+│   │   ├── stock.py
+│   │   └── payment.py
+│   │
+│   ├── schemas/product.py
+│   │   ├── user.py
+│   │   ├── customer.py
+│   │   ├── supplier.py
+│   │   ├── category.py
+│   │   ├── product.py
+│   │   ├── purchase.py
+│   │   ├── sale.py
+│   │   ├── stock.py
+│   │   ├── payment.py
+│   │   └── report.py
+│   │
+│   ├── auth/
+│   │   ├── jwt_handler.py
+│   │   └── dependencies.py
+│   │
+│   ├── routers/
+│   │   ├── auth.py
+│   │   ├── customers.py
+│   │   ├── suppliers.py
+│   │   ├── categories.py
+│   │   ├── products.py
+│   │   ├── purchases.py
+│   │   ├── sales.py
+│   │   ├── invoices.py
+│   │   ├── stocks.py
+│   │   ├── payments.py
+│   │   └── reports.py
+│   │
+│   ├── services/
+│   │   ├── invoice_service.py
+│   │   ├── stock_service.py
+│   │   ├── sales_service.py
+│   │   ├── purchase_service.py
+│   │   └── report_service.py
+│   │
+│   └── utils/
+│       ├── invoice_number.py
+│       ├── password.py
+│       └── response.py
+│
+├── requirements.txt
+├── .env
+├── .gitignore
+└── README.md
+
+Category
+   ↓
+Product
+   ↓
+Customer
+   ↓
+Supplier
+   ↓
+Purchase
+   ↓
+Stock
+   ↓
+Sales
+   ↓
+Invoice
+   ↓
+Payment
+   ↓
+Reports
+   ↓
+Dashboard

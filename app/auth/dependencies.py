@@ -21,15 +21,19 @@ def get_current_user(
     )
 
     payload = decode_access_token(token)
-    if payload is None:
+    if payload is None or payload.get("type") != "access":
         raise credentials_exception
 
-    username: str | None = payload.get("sub")
-    if username is None:
+    user_id = payload.get("sub")
+    if user_id is None:
         raise credentials_exception
 
-    user = db.query(User).filter(User.username == username).first()
-    if user is None:
+    try:
+        user = db.query(User).filter(User.user_id == int(user_id)).first()
+    except (TypeError, ValueError):
+        raise credentials_exception
+
+    if user is None or not user.is_active:
         raise credentials_exception
 
     return user
