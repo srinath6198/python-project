@@ -1,10 +1,17 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.pool import NullPool
 
 from app.config import settings
 
 # echo=True prints generated SQL to console - useful while learning/debugging
-engine = create_engine(settings.SQLALCHEMY_DATABASE_URL, echo=False, pool_pre_ping=True)
+# NullPool disables connection pooling - useful for testing and avoiding stale connections
+engine = create_engine(
+    settings.SQLALCHEMY_DATABASE_URL,
+    echo=False,
+    pool_pre_ping=True,
+    pool_recycle=3600,  # Recycle connections after 1 hour
+)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

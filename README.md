@@ -121,3 +121,25 @@ Once this auth layer is confirmed working, add:
   protected.
 
 Say the word and I'll build that part next, using this same folder structure.
+
+             LOGIN
+               │
+               ▼
+       ┌─────────────────┐
+       │ Access Token    │───► /auth/me
+       │ 60 minutes      │
+       └─────────────────┘
+               │
+          expires
+               │
+               ▼
+       ┌─────────────────┐
+       │ Refresh Token   │
+       │ 7 days          │
+       └─────────────────┘
+               │
+               ▼
+        POST /auth/refresh
+               │
+               ▼
+       New Access Token
