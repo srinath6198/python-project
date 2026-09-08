@@ -3,7 +3,7 @@ from fastapi import FastAPI
 
 from app.database import Base, engine
 from app import models  # noqa: F401  (imports User so table gets registered)
-from app.routers import admin_users, auth, company, product, user
+from app.routers import admin_users, auth, company, product, user,Configmaster
 from fastapi.middleware.cors import CORSMiddleware
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,7 @@ app.include_router(auth.router)
 app.include_router(user.router)
 app.include_router(company.router)
 app.include_router(admin_users.router)
+app.include_router(Configmaster.router)
 app.include_router(product.router)
 
 
