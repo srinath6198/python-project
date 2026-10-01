@@ -2,6 +2,7 @@ from datetime import datetime
 from enum import Enum
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy.orm import relationship
 
 from app.database import Base
 
@@ -17,7 +18,7 @@ class User(Base):
     __tablename__ = "users"
 
     user_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    company_id = Column(Integer, ForeignKey("companies.company_id"), nullable=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.company_id"), nullable=False, index=True)
     username = Column(String(100), unique=True, nullable=False)
     email = Column(String(255), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
@@ -31,6 +32,7 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    company = relationship("Company", back_populates="users")
 
 
 class RefreshToken(Base):

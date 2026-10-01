@@ -2,6 +2,7 @@ from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field
 
 from app.models.user import UserRole
+from app.schemas.company import CompanyOut
 
 
 class UserCreate(BaseModel):
@@ -9,8 +10,8 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=6)
     full_name: str | None = None
-    company_id: int | None = None
-    company_name: str | None = Field(default=None, min_length=2, max_length=150)
+    company_id: int | None = Field(default=0, ge=0)
+    company_name: str = Field(..., min_length=2, max_length=150)
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -55,7 +56,7 @@ class UserLogin(BaseModel):
 
 class UserOut(BaseModel):
     user_id: int
-    company_id: int | None = None
+    company_id: int
     username: str
     email: EmailStr
     full_name: str | None = None
@@ -86,6 +87,7 @@ class LogoutRequest(BaseModel):
 
 
 class RegisterResponse(BaseModel):
+    company: CompanyOut
     user: UserOut
     access_token: str
     refresh_token: str
@@ -93,5 +95,9 @@ class RegisterResponse(BaseModel):
     expires_at: datetime
 
 
-# Alias for login endpoint (same structure as register)
-AuthResponse = RegisterResponse
+class AuthResponse(BaseModel):
+    user: UserOut
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_at: datetime

@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import Boolean, Column, DateTime, Integer, String
+from sqlalchemy.orm import relationship
 
 from app.database import Base
 
@@ -17,3 +18,4 @@ class Company(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    users = relationship("User", back_populates="company")

@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.auth.authorization import require_super_admin_or_admin
+from app.auth.authorization import require_super_admin
 from app.database import get_db
 from app.models.company import Company
-from app.models.user import User, UserRole
+from app.models.user import RefreshToken, User, UserRole
 from app.schemas.user import AdminUserCreate, AdminUserUpdate, UserOut
 from app.utils.security import hash_password
 
@@ -13,21 +14,18 @@ router = APIRouter(prefix="/api/admin/users", tags=["Admin User Master"])
 
 
 def can_manage_role(manager: User, target_role: UserRole) -> bool:
-    if manager.role == UserRole.SUPER_ADMIN.value:
-        return target_role in {
-            UserRole.SUPER_ADMIN_USER,
-            UserRole.ADMIN,
-            UserRole.ADMIN_USER,
-        }
-    return manager.role == UserRole.ADMIN.value and target_role == UserRole.ADMIN_USER
+    return (
+        manager.role == UserRole.SUPER_ADMIN.value
+        and target_role != UserRole.SUPER_ADMIN
+    )
 
 
 def can_manage_user(manager: User, target: User) -> bool:
-    try:
-        target_role = UserRole(target.role)
-    except ValueError:
-        return False
-    return can_manage_role(manager, target_role)
+    return (
+        manager.role == UserRole.SUPER_ADMIN.value
+        and manager.company_id is not None
+        and target.company_id == manager.company_id
+    )
 
 
 def get_target_user(user_id: int, db: Session) -> User:
@@ -38,11 +36,6 @@ def get_target_user(user_id: int, db: Session) -> User:
             detail="User not found",
         )
     return user
-
-
-def ensure_company(company_id: int | None, db: Session) -> None:
-    if company_id is not None and db.query(Company).filter(Company.company_id == company_id).first() is None:
-        raise HTTPException(status_code=404, detail="Company not found")
 
 
 def ensure_unique_user_fields(
@@ -64,7 +57,7 @@ def ensure_unique_user_fields(
 @router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def create_admin_user(
     request: AdminUserCreate,
-    manager: User = Depends(require_super_admin_or_admin()),
+    manager: User = Depends(require_super_admin()),
     db: Session = Depends(get_db),
 ):
     if not can_manage_role(manager, request.role):
@@ -72,10 +65,27 @@ def create_admin_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You cannot create a user with this role",
         )
-    company_id = request.company_id if manager.role == UserRole.SUPER_ADMIN.value else manager.company_id
+    company_id = manager.company_id
     if company_id is None:
-        raise HTTPException(status_code=400, detail="Manager is not assigned to a company")
-    ensure_company(company_id, db)
+        raise HTTPException(status_code=403, detail="Super Admin must belong to a company")
+    if request.company_id not in (None, company_id):
+        raise HTTPException(status_code=403, detail="Users must belong to your company")
+
+    company = (
+        db.query(Company)
+        .filter(Company.company_id == company_id)
+        .with_for_update()
+        .first()
+    )
+    if company is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    user_count = db.query(User).filter(User.company_id == company_id).count()
+    if user_count >= 3:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Free plan includes 3 users. Upgrade the company plan to add more users.",
+        )
+
     ensure_unique_user_fields(db, request.username, request.email)
 
     user = User(
@@ -91,37 +101,39 @@ def create_admin_user(
         is_active=request.is_active,
     )
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Username or email already registered",
+        ) from exc
     db.refresh(user)
     return user
 
 
 @router.get("", response_model=list[UserOut])
 def list_admin_users(
-    manager: User = Depends(require_super_admin_or_admin()),
+    manager: User = Depends(require_super_admin()),
     db: Session = Depends(get_db),
 ):
-    query = db.query(User)
-    if manager.role != UserRole.SUPER_ADMIN.value and manager.company_id is not None:
-        query = query.filter(User.company_id == manager.company_id)
-    if manager.role == UserRole.ADMIN.value:
-        query = query.filter(User.role == UserRole.ADMIN_USER.value)
-    else:
-        query = query.filter(User.role != UserRole.SUPER_ADMIN.value)
-    return query.order_by(User.user_id).all()
+    return (
+        db.query(User)
+        .filter(User.company_id == manager.company_id)
+        .order_by(User.user_id)
+        .all()
+    )
 
 
 @router.get("/{user_id}", response_model=UserOut)
 def get_admin_user(
     user_id: int,
-    manager: User = Depends(require_super_admin_or_admin()),
+    manager: User = Depends(require_super_admin()),
     db: Session = Depends(get_db),
 ):
     user = get_target_user(user_id, db)
-    if not can_manage_user(manager, user) or (
-        manager.role != UserRole.SUPER_ADMIN.value
-        and manager.company_id != user.company_id
-    ):
+    if not can_manage_user(manager, user):
         raise HTTPException(status_code=403, detail="You cannot manage this user")
     return user
 
@@ -130,21 +142,22 @@ def get_admin_user(
 def update_admin_user(
     user_id: int,
     request: AdminUserUpdate,
-    manager: User = Depends(require_super_admin_or_admin()),
+    manager: User = Depends(require_super_admin()),
     db: Session = Depends(get_db),
 ):
     user = get_target_user(user_id, db)
-    if not can_manage_user(manager, user) or not can_manage_role(manager, request.role) or (
-        manager.role != UserRole.SUPER_ADMIN.value
-        and manager.company_id != user.company_id
-    ):
+    if not can_manage_user(manager, user):
         raise HTTPException(status_code=403, detail="You cannot manage this role")
+    if request.company_id not in (None, manager.company_id):
+        raise HTTPException(status_code=403, detail="Users cannot be moved to another company")
+    if user.user_id == manager.user_id:
+        if request.role != UserRole.SUPER_ADMIN or not request.is_active:
+            raise HTTPException(status_code=403, detail="You cannot change your own Super Admin access")
+    elif not can_manage_role(manager, request.role):
+        raise HTTPException(status_code=403, detail="You cannot assign this role")
     ensure_unique_user_fields(db, request.username, request.email, user_id)
 
     user.username = request.username
-    if manager.role == UserRole.SUPER_ADMIN.value and request.company_id is not None:
-        ensure_company(request.company_id, db)
-        user.company_id = request.company_id
     user.email = request.email
     user.full_name = request.full_name
     user.mobile_number = request.mobile_number
@@ -155,7 +168,14 @@ def update_admin_user(
     if request.password:
         user.password_hash = hash_password(request.password)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Username or email already registered",
+        ) from exc
     db.refresh(user)
     return user
 
@@ -163,18 +183,18 @@ def update_admin_user(
 @router.delete("/{user_id}")
 def delete_admin_user(
     user_id: int,
-    manager: User = Depends(require_super_admin_or_admin()),
+    manager: User = Depends(require_super_admin()),
     db: Session = Depends(get_db),
 ):
     user = get_target_user(user_id, db)
-    if not can_manage_user(manager, user) or (
-        manager.role != UserRole.SUPER_ADMIN.value
-        and manager.company_id != user.company_id
-    ):
+    if not can_manage_user(manager, user):
         raise HTTPException(status_code=403, detail="You cannot delete this user")
     if user.user_id == manager.user_id:
         raise HTTPException(status_code=403, detail="You cannot delete your own account")
 
+    db.query(RefreshToken).filter(RefreshToken.user_id == user.user_id).delete(
+        synchronize_session=False
+    )
     db.delete(user)
     db.commit()
     return {"success": True, "message": "User deleted successfully"}

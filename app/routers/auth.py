@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
@@ -13,7 +14,7 @@ from app.auth.jwt_handler import (
 from app.config import settings
 from app.database import get_db
 from app.models.company import Company
-from app.models.user import User, RefreshToken
+from app.models.user import RefreshToken, User, UserRole
 from app.schemas.user import Token, UserCreate, UserOut, RefreshTokenRequest, LogoutRequest, RegisterResponse, AuthResponse
 from app.utils.security import hash_password, verify_password
 
@@ -34,59 +35,58 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
             detail="Username or email already registered",
         )
 
-    if user_in.company_id is not None:
-        company = db.query(Company).filter(
-            Company.company_id == user_in.company_id,
-            Company.is_active.is_(True),
-        ).first()
-        if company is None:
-            raise HTTPException(status_code=404, detail="Active company not found")
-    else:
-        company = Company(
-            company_code=f"COMP-{uuid4().hex[:10].upper()}",
-            company_name=user_in.company_name or f"{user_in.username} Company",
-            is_active=True,
+    if user_in.company_id not in (None, 0):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Public registration creates a new company; ask its Super Admin to add users",
         )
-        db.add(company)
-        db.flush()
 
+    company = Company(
+        company_code=f"COMP-{uuid4().hex.upper()}",
+        company_name=user_in.company_name,
+        is_active=True,
+    )
     new_user = User(
-        company_id=company.company_id,
+        company=company,
         username=user_in.username,
         email=user_in.email,
         full_name=user_in.full_name,
         password_hash=hash_password(user_in.password),
-        role="ADMIN",
+        role=UserRole.SUPER_ADMIN.value,
     )
+    db.add(company)
     db.add(new_user)
-    db.commit()
+
+    try:
+        db.flush()
+        token_data = {
+            "sub": str(new_user.user_id),
+            "username": new_user.username,
+            "role": new_user.role,
+        }
+        access_token = create_access_token(data=token_data)
+        refresh_token = create_refresh_token(data=token_data)
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            days=settings.REFRESH_TOKEN_EXPIRE_DAYS
+        )
+        db.add(RefreshToken(
+            user_id=new_user.user_id,
+            token=refresh_token,
+            expires_at=expires_at,
+            is_revoked=False,
+        ))
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Username or email already registered",
+        ) from exc
+
+    db.refresh(company)
     db.refresh(new_user)
-    
-    # Generate tokens
-    token_data = {
-        "sub": str(new_user.user_id),
-        "username": new_user.username,
-        "role": new_user.role,
-    }
-    access_token = create_access_token(data=token_data)
-    refresh_token = create_refresh_token(data=token_data)
-    
-    # Calculate expiration time
-    expires_at = datetime.now(timezone.utc) + timedelta(
-        days=settings.REFRESH_TOKEN_EXPIRE_DAYS
-    )
-    
-    # Save refresh token to database
-    refresh_token_record = RefreshToken(
-        user_id=new_user.user_id,
-        token=refresh_token,
-        expires_at=expires_at,
-        is_revoked=False
-    )
-    db.add(refresh_token_record)
-    db.commit()
-    
     return RegisterResponse(
+        company=company,
         user=new_user,
         access_token=access_token,
         refresh_token=refresh_token,

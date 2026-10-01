@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.auth.authorization import require_admin
+from app.models.Configmaster import CompanyConfig
 from app.models.product import Product
 from app.schemas.product import ProductCreate, ProductUpdate
 
@@ -18,9 +19,9 @@ def product_data(product: Product) -> dict:
         "product_id": product.product_id,
         "product_code": product.product_code,
         "product_name": product.product_name,
-        "uom": product.uom,
-        "size": product.size,
-        "length": product.length,
+        "uom_config_id": product.uom_config_id,
+        "size_config_id": product.size_config_id,
+        "length_config_id": product.length_config_id,
         "category": product.category,
         "unit": product.unit,
         "purchase_price": product.purchase_price,
@@ -32,6 +33,30 @@ def product_data(product: Product) -> dict:
         "is_active": product.is_active,
         "created_date": product.created_date,
     }
+
+
+def validate_product_configs(request: ProductCreate | ProductUpdate, company_id: int, db: Session) -> None:
+    expected_types = {
+        "uom_config_id": "UOM",
+        "size_config_id": "SIZE",
+        "length_config_id": "LENGTH",
+    }
+
+    for field, expected_type in expected_types.items():
+        config_id = getattr(request, field)
+        if config_id is None:
+            continue
+
+        config = db.query(CompanyConfig).filter(
+            CompanyConfig.config_id == config_id,
+            CompanyConfig.company_id == company_id,
+            CompanyConfig.is_active.is_(True),
+        ).first()
+        if config is None or config.config_type.strip().upper() != expected_type:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"{field} must reference an active {expected_type} config belonging to your company",
+            )
 
 
 # POST   /products              → Create product
@@ -48,6 +73,7 @@ def create_product(
 ):
     if current_user.company_id is None:
         raise HTTPException(status_code=400, detail="User is not assigned to a company")
+    validate_product_configs(request, current_user.company_id, db)
     existing_product = db.query(Product).filter(
         Product.product_code == request.product_code,
         Product.company_id == current_user.company_id,
@@ -127,6 +153,10 @@ def update_product(
             status_code=404,
             detail="Product not found"
         )
+
+    if current_user.company_id is None:
+        raise HTTPException(status_code=400, detail="User is not assigned to a company")
+    validate_product_configs(request, current_user.company_id, db)
 
     duplicate = db.query(Product).filter(
         Product.product_code == request.product_code,

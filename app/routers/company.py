@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.auth.authorization import require_super_admin
+from app.auth.authorization import require_super_admin, require_super_admin_or_admin
 from app.database import get_db
 from app.models.company import Company
+from app.models.user import UserRole
 from app.schemas.company import CompanyCreate, CompanyOut, CompanyUpdate
 
 
@@ -57,9 +58,11 @@ def list_companies(
 @router.get("/{company_id}", response_model=CompanyOut)
 def get_company_by_id(
     company_id: int,
-    current_user=Depends(require_super_admin()),
+    current_user=Depends(require_super_admin_or_admin()),
     db: Session = Depends(get_db),
 ):
+    if current_user.role == UserRole.ADMIN.value and current_user.company_id != company_id:
+        raise HTTPException(status_code=403, detail="You do not have permission to access this company")
     return get_company(company_id, db)
 
 

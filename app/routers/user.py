@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.models.user import User
 from app.schemas.user import ProfileUpdateRequest
@@ -90,6 +91,16 @@ def update_profile(
             detail="User not found"
         )
 
+    duplicate_user = db.query(User).filter(
+        User.user_id != userid,
+        (User.username == request.username) | (User.email == request.email),
+    ).first()
+    if duplicate_user:
+        raise HTTPException(
+            status_code=409,
+            detail="Username or email already registered",
+        )
+
     user.username = request.username
     user.email = request.email
     user.full_name = request.full_name
@@ -97,7 +108,14 @@ def update_profile(
     user.address = request.address
     user.shopName = request.shopName
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Username or email already registered",
+        ) from exc
     db.refresh(user)
 
     return {

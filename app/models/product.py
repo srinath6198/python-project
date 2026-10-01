@@ -13,9 +13,9 @@ class Product(Base):
     product_code = Column(String(50), unique=True, nullable=False)
     product_name = Column(String(150), nullable=False)
 
-    uom = Column(String(50), nullable=True)
-    size = Column(String(50), nullable=True)
-    length = Column(String(50), nullable=True)
+    uom_config_id = Column(Integer, ForeignKey("company_configs.config_id"), nullable=True)
+    size_config_id = Column(Integer, ForeignKey("company_configs.config_id"), nullable=True)
+    length_config_id = Column(Integer, ForeignKey("company_configs.config_id"), nullable=True)
 
     category = Column(String(100), nullable=True)
     unit = Column(String(50), nullable=True)
